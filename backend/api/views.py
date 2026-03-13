@@ -8,7 +8,6 @@ from rest_framework import status
 from datetime import date
 from datetime import datetime
 
-
 # @api_view(['POST'])
 # def register_guardian(request):
 #     serializer = GuardianRegisterSerializer(data=request.data)
@@ -231,7 +230,6 @@ def add_medication(request):
             },
             status=status.HTTP_201_CREATED
         )
-
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -313,24 +311,49 @@ def update_medication_status(request):
         if medication.guardian:
             channel_layer = get_channel_layer()
             logger.info(f"Sending WebSocket update for guardian {medication.guardian.guardian_id}")
-            async_to_sync(channel_layer.group_send)(
-                f"guardian_{medication.guardian.guardian_id}",
-                {
-                    "type": "send_update",
-                    "content": {
-                        "med_id": medication.med_id,
-                        "medication_name": medication.medication_name,
-                        "status": new_status,
-                        "elderly_id": medication.elderly.elder_id if medication.elderly else None,
-                        "name": medication.elderly.name if medication.elderly else None,
-                    },
-                }
-            )
+            try:
+                async_to_sync(channel_layer.group_send)(
+                    f"guardian_{medication.guardian.guardian_id}",
+                    {
+                        "type": "send_update",
+                        "content": {
+                            "med_id": medication.med_id,
+                            "medication_name": medication.medication_name,
+                            "status": new_status,
+                            "elderly_id": medication.elderly.elder_id if medication.elderly else None,
+                            "name": medication.elderly.name if medication.elderly else None,
+                        },
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"WebSocket notify failed (continuing): {e}")
 
         return Response({"message": f"Medication {med_id} status updated to {new_status}"}, status=200)
 
     except Medication.DoesNotExist:
         return Response({"error": "Medication not found"}, status=404)
+    except Exception as e:
+        # #region agent log
+        try:
+            import json as _json
+            import time as _time
+            with open("debug-f7c4c1.log", "a", encoding="utf-8") as f:
+                f.write(_json.dumps({
+                    "sessionId": "f7c4c1",
+                    "runId": "run2",
+                    "hypothesisId": "S1",
+                    "location": "backend/api/views.py:update_medication_status",
+                    "message": "exception in update_medication_status",
+                    "data": {
+                        "exc_type": e.__class__.__name__,
+                        "exc_msg": str(e)[:800],
+                    },
+                    "timestamp": _time.time(),
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        raise
 
 
 ####################################################################################
